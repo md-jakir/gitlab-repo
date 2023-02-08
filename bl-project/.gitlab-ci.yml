@@ -1,0 +1,34 @@
+stages:
+    - pre-check
+    - build
+    - test
+    - deploy
+
+.job_template: &template
+    tags:
+      #- bl-devops
+      - CI
+      - DevOps
+
+CI_Pre-check:
+  <<: *template
+  stage: pre-check
+  script:
+    - export NPM_VERSION=$(npm -v)
+    - echo "${NPM_VERSION}"
+
+prod_deploy:
+  stage: build
+  trigger:
+    include: deployment/prod_deploy.yml
+    #strategy: depend
+  rules:
+    - if: $branch == "main"
+
+stg_deploy:
+  stage: build
+  trigger:
+    include: deployment/stg_deploy.yml
+    #strategy: depend
+  rules:
+    - if: $branch == "develop
