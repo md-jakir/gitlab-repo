@@ -1,0 +1,92 @@
+before_script:
+  - export GRADLE_USER_HOME=`pwd`/.gradle
+
+services:
+  - docker:dind
+
+cache:
+  paths:
+    - .gradle/wrapper
+    - .gradle/caches
+
+variables:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://memo2-dev.c9pnqgz7smag.eu-west-2.rds.amazonaws.com:5432/thx-app
+  SPRING_DATASOURCE_USERNAME: postgres
+  SPRING_DATASOURCE_PASSWORD: 28raagkwsJhmt3CnwwAAiF8MveYy9LN82YLfKCuNB9unrtEG
+  ECR_REGISTRY: 170059070788.dkr.ecr.eu-west-2.amazonaws.com
+  CI_AWS_ECS_TEST_CLUSTER: memo-test
+  CI_AWS_ECS_MOBILE_SERVICE: mobile-test
+  CI_AWS_ECS_DASHBOARD_SERVICE: dashboard-test
+  CI_AWS_ECS_POINTS_SERVICE: points-test
+  CI_AWS_DEFAULT_REGION: eu-west-2
+
+stages:
+  - build
+#  - test
+  - containerize
+#  - deploy
+#  - docs
+
+build:
+  stage: build
+  image: openjdk:11-slim
+  script:
+    - ./gradlew assemble
+  artifacts:
+    paths:
+      - ./ecs/dashboard/build/libs/dashboard-api.jar
+      - ./ecs/mobile/build/libs/mobile-api.jar
+      - ./ecs/points/build/libs/points.jar
+      - ./lambda/media-uploader/build/distributions/media-uploader-lambda.zip
+      - ./lambda/mobile/build/distributions/locationextractor-lambda.zip
+  only:
+    - master
+    - /^staging.*$/
+
+#test:
+#  stage: test
+#  image: openjdk:11-slim
+#  script:
+#    - ./gradlew check
+
+containerize:
+  stage: containerize
+  image: docker:19
+  script:
+    - apk add py-pip
+    - pip install awscli --upgrade
+    - echo `aws ecr get-login --no-include-email --region eu-west-2` | sh
+    - docker build -t $ECR_REGISTRY/dashboard-api:$CI_COMMIT_SHA ./ecs/dashboard
+    - docker build -t $ECR_REGISTRY/mobile-api:$CI_COMMIT_SHA ./ecs/mobile
+    - docker build -t $ECR_REGISTRY/points:$CI_COMMIT_SHA ./ecs/points
+    - docker push $ECR_REGISTRY/dashboard-api:$CI_COMMIT_SHA
+    - docker push $ECR_REGISTRY/mobile-api:$CI_COMMIT_SHA
+    - docker push $ECR_REGISTRY/points:$CI_COMMIT_SHA
+  only:
+    - master
+    - develop
+    - /^bugfix.*$/
+    - /^staging.*$/
+
+#deploy:
+#  stage: deploy
+#  image: backstreetacademy/docker-aws
+#  script:
+#    - ecs deploy $CI_AWS_ECS_TEST_CLUSTER $CI_AWS_ECS_MOBILE_SERVICE --tag $CI_COMMIT_SHA --region $CI_AWS_DEFAULT_REGION --timeout=1800
+#    - ecs deploy $CI_AWS_ECS_TEST_CLUSTER $CI_AWS_ECS_DASHBOARD_SERVICE --tag $CI_COMMIT_SHA --region $CI_AWS_DEFAULT_REGION --timeout=1800
+#    - ecs deploy $CI_AWS_ECS_TEST_CLUSTER $CI_AWS_ECS_POINTS_SERVICE --tag $CI_COMMIT_SHA --region $CI_AWS_DEFAULT_REGION --timeout=1800
+#  only:
+#    - develop
+
+#docs:
+#  stage: docs
+#  script:
+#    - mkdir .public
+#    - cp -r ./ecs/mobile/src/docs/rendered/html5/mobile-api.html .public
+#    - cp -r ./ecs/dashboard/src/docs/rendered/html5/dashboard-api.html .public
+#    - mv .public public
+#  artifacts:
+#    paths:
+#      - public
+#  only:
+#    - master
