@@ -1,0 +1,57 @@
+image: node:14.15.0
+
+stages:
+  - build
+  - deploy
+
+cache:
+  paths:
+    - node_modules/
+
+build-job:
+  stage: build
+  script:
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - node_modules/
+      - build/
+
+.deploy-job:
+  image: python:latest
+  stage: deploy
+  before_script:
+    - pip install awscli
+    - apt-get update -y
+    - apt-get install -y zip
+    - mkdir ~/.aws/
+    - touch ~/.aws/credentials
+    - printf "[eb-cli]\naws_access_key_id = %s\naws_secret_access_key = %s\n" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" >> ~/.aws/credentials
+  script:
+    - export VERSION_LABEL="${AWS_EB_APP_NAME}-${CI_COMMIT_SHA}"
+    - zip "${CI_COMMIT_SHA}.zip" -r config build package.json package-lock.json .npmrc ./scripts countries.json swagger.json
+    - aws s3 cp "${CI_COMMIT_SHA}.zip" "s3://${AWS_S3_BUCKET_NAME}/${AWS_EB_APP_NAME}/${CI_COMMIT_SHA}.zip"
+    - aws elasticbeanstalk create-application-version --application-name "${AWS_EB_APP_NAME}" --version-label "$VERSION_LABEL" --source-bundle S3Bucket="${AWS_S3_BUCKET_NAME}",S3Key="${AWS_EB_APP_NAME}/${CI_COMMIT_SHA}.zip" --region "${AWS_REGION}"
+    - aws elasticbeanstalk update-environment --environment-name "${AWS_EB_APP_NAME}-${CI_ENVIRONMENT_NAME}" --application-name "${AWS_EB_APP_NAME}" --version-label "$VERSION_LABEL" --region "${AWS_REGION}"
+
+deploy:develop:
+  extends: .deploy-job
+  environment:
+    name: Development
+  only:
+    - develop
+
+deploy:prod:
+  extends: .deploy-job
+  environment:
+    name: Production
+  only:
+    - master
+
+deploy:staging:
+  extends: .deploy-job
+  environment:
+    name: staging
+  only:
+    - staging
